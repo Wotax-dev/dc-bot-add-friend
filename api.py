@@ -6,21 +6,33 @@ BASE_URL = "https://addfriendmain-wotaxxdev.vercel.app/add?uid=4151162997&passwo
 
 def call_addfriend_api(uid: str):
     """
-    Calls the API with the given adduid.
-    Returns a dict containing only the JSON response, or {} on any error.
+    Call the add-friend API.
+    Returns only a dict with either 'message' or 'error' if present, else {}.
     """
     try:
         url = BASE_URL.format(uid=urllib.parse.quote(str(uid)))
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
         data = resp.json()
-        # Only keep 'message' or 'error' keys
-        filtered = {}
-        if "message" in data:
-            filtered["message"] = data["message"]
-        if "error" in data:
-            filtered["error"] = data["error"]
-        return filtered
+
+        # Check top-level main_response first
+        main_resp = data.get("main_response", {})
+        result = {}
+        if isinstance(main_resp, dict):
+            if "message" in main_resp:
+                result["message"] = main_resp["message"]
+            elif "error" in main_resp:
+                result["error"] = main_resp["error"]
+
+        # fallback: top-level keys if main_response missing
+        if not result:
+            if "message" in data:
+                result["message"] = data["message"]
+            elif "error" in data:
+                result["error"] = data["error"]
+
+        return result
+
     except Exception:
-        # On network error, timeout, HTTP 500, or invalid JSON, return empty dict
+        # Never leak API URLs, just return empty dict
         return {}
