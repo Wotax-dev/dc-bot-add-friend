@@ -92,10 +92,10 @@ def make_embed(message_text: str, success: bool, author: discord.Member, remaini
         description=None,
         color=color
     )
-    # Put the API message text in the embed
+    # API message
     embed.add_field(name="\u200b", value=message_text, inline=False)
 
-    # Image at bottom of embed
+    # GIF at bottom
     embed.set_image(url=GIF_THUMB)
 
     # Footer
@@ -105,7 +105,7 @@ def make_embed(message_text: str, success: bool, author: discord.Member, remaini
     limit_text = "unlimited" if remaining_limit is None else str(remaining_limit)
     embed.add_field(name="Limit", value=limit_text, inline=True)
 
-    # Show who requested
+    # Author
     embed.set_author(name=str(author), icon_url=author.display_avatar.url if author.display_avatar else None)
 
     return embed
@@ -136,7 +136,7 @@ async def removechannel(ctx):
     else:
         await ctx.reply("No channel was set for this server.")
 
-# The main add command
+# Main add command
 @bot.command(name="add")
 async def add(ctx, adduid: str = None):
     if adduid is None:
@@ -164,28 +164,31 @@ async def add(ctx, adduid: str = None):
     try:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, call_addfriend_api, adduid)
-    except Exception as e:
-        embed = make_embed(f"❌ Network error calling API: {str(e)}", success=False, author=ctx.author, remaining_limit=remaining_after)
-        await ctx.reply(embed=embed)
+    except Exception:
+        # Delete user message silently if network error
+        await ctx.message.delete()
         return
 
     # Parse API response
     success_message = result.get("message")
     error_message = result.get("error")
 
+    # If neither message nor error, delete user message silently
+    if not success_message and not error_message:
+        await ctx.message.delete()
+        return
+
     # Increment usage
     increment_user_usage(ctx.author.id)
     remaining_after = get_user_limit_remaining(ctx.author.id)
 
+    # Make embed
     if success_message:
         embed = make_embed(success_message, success=True, author=ctx.author, remaining_limit=remaining_after)
-        await ctx.reply(embed=embed)
-    elif error_message:
+    else:  # error_message exists
         embed = make_embed(error_message, success=False, author=ctx.author, remaining_limit=remaining_after)
-        await ctx.reply(embed=embed)
-    else:
-        embed = make_embed("❌ Unexpected API response format.", success=False, author=ctx.author, remaining_limit=remaining_after)
-        await ctx.reply(embed=embed)
+
+    await ctx.reply(embed=embed)
 
 # Admin command to reset user usage
 @bot.command(name="resetusage")
