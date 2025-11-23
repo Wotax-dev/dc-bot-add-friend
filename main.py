@@ -4,22 +4,25 @@ import asyncio
 from bot import run
 from aiohttp import web
 
+# Simple HTTP endpoint to satisfy Render
 async def hello(request):
     return web.Response(text="Bot is running")
 
 async def main():
-    # Start your bot in background
+    # Run your Discord bot in background
     loop = asyncio.get_event_loop()
     loop.create_task(asyncio.to_thread(run))
     
-    # Start tiny web server
+    # Start small web server on port 5000
     app = web.Application()
     app.add_routes([web.get("/", hello)])
-    port = int(os.environ.get("PORT", 5000))
+    port = 5000  # use Render-friendly port
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+    
+    # Keep process alive
     while True:
         await asyncio.sleep(3600)
 
