@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMINS_RAW = os.getenv("ADMINS", "")
-DEFAULT_REGION = os.getenv("DEFAULT_REGION", "eu").lower()
 ADMINS = {int(x.strip()) for x in ADMINS_RAW.split(",") if x.strip().isdigit()}
 
 BASE_DIR = Path(__file__).parent
@@ -22,7 +21,7 @@ USAGE_FILE = BASE_DIR / "usage.json"
 GIF_THUMB = "https://i.imgur.com/3ikE0vL.gif"
 NORMAL_LIMIT = 2
 
-# ------------------- Helper functions ------------------- #
+# ------------------- Helpers ------------------- #
 def ensure_files():
     if not CHANNELS_FILE.exists():
         CHANNELS_FILE.write_text(json.dumps({"guild_channels": {}}, indent=2))
@@ -86,7 +85,24 @@ def make_embed(message_text: str, success: bool, author: discord.Member, remaini
     embed.set_author(name=str(author), icon_url=author.display_avatar.url if author.display_avatar else None)
     return embed
 
-# ------------------- Bot Setup ------------------- #
+def extract_message_error(data):
+    """
+    Recursively find 'message' or 'error' in a dict
+    Returns (key, value) or (None, None)
+    """
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k.lower() == "message":
+                return "message", str(v)
+            elif k.lower() == "error":
+                return "error", str(v)
+            elif isinstance(v, dict):
+                key, val = extract_message_error(v)
+                if key:
+                    return key, val
+    return None, None
+
+# ------------------- Bot ------------------- #
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
@@ -104,7 +120,7 @@ async def add(ctx, adduid: str = None):
 
     channels = load_channels().get("guild_channels", {})
     allowed_channel_id = channels.get(str(ctx.guild.id))
-    if allowed_channel_id is not None and ctx.channel.id != allowed_channel_id:
+    if allowed_channel_id and ctx.channel.id != allowed_channel_id:
         await ctx.reply("This command can only be used in the configured channel.")
         return
 
@@ -114,32 +130,29 @@ async def add(ctx, adduid: str = None):
         return
 
     await ctx.typing()
-    try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, call_addfriend_api, adduid)
-    except Exception:
-        await ctx.message.delete()
-        return
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, call_addfriend_api, adduid)
 
-    # Extract message or error
-    success_message = result.get("message")
-    error_message = result.get("error")
+    key, text = extract_message_error(result)
 
-    if success_message:
+    if key == "message":
         increment_user_usage(ctx.author.id)
         remaining_after = get_user_limit_remaining(ctx.author.id)
-        embed = make_embed(success_message, success=True, author=ctx.author, remaining_limit=remaining_after)
+        embed = make_embed(text, success=True, author=ctx.author, remaining_limit=remaining_after)
         await ctx.reply(embed=embed)
-    elif error_message:
+    elif key == "error":
         increment_user_usage(ctx.author.id)
         remaining_after = get_user_limit_remaining(ctx.author.id)
-        embed = make_embed(error_message, success=False, author=ctx.author, remaining_limit=remaining_after)
+        embed = make_embed(text, success=False, author=ctx.author, remaining_limit=remaining_after)
         await ctx.reply(embed=embed)
     else:
-        # Only delete message if truly nothing returned
-        await ctx.message.delete()
+        # delete only if truly nothing valid
+        try:
+            await ctx.message.delete()
+        except:
+            pass
 
-# Optional: Admin commands for channel and usage management
+# ------------------- Admin Commands ------------------- #
 @bot.command(name="setchannel")
 async def setchannel(ctx):
     if not is_admin(ctx.author.id):
