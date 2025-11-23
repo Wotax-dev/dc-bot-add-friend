@@ -1,3 +1,4 @@
+# bot.py
 import os
 import json
 import asyncio
@@ -23,10 +24,9 @@ USAGE_FILE = BASE_DIR / "usage.json"
 
 GIF_THUMB = "https://i.imgur.com/3ikE0vL.gif"
 
-# Limits
 NORMAL_LIMIT = 2
 
-# ---------------- Helper functions ----------------
+# ---------------- Helper persistence functions ----------------
 def ensure_files():
     if not CHANNELS_FILE.exists():
         CHANNELS_FILE.write_text(json.dumps({"guild_channels": {}}, indent=2))
@@ -91,7 +91,7 @@ def make_embed(message_text: str, success: bool, author: discord.Member, remaini
         description=None,
         color=color
     )
-    embed.add_field(name="Response:", value=message_text, inline=False)
+    embed.add_field(name="\u200b", value=f"Response: {message_text}", inline=False)
     embed.set_image(url=GIF_THUMB)
     embed.set_footer(text="Dev: Wotaxx • Powered by ULTIGER IOS")
     limit_text = "unlimited" if remaining_limit is None else str(remaining_limit)
@@ -99,7 +99,7 @@ def make_embed(message_text: str, success: bool, author: discord.Member, remaini
     embed.set_author(name=str(author), icon_url=author.display_avatar.url if author.display_avatar else None)
     return embed
 
-# ---------------- Admin channel commands ----------------
+# ---------------- Admin-only channel commands ----------------
 @bot.command(name="setchannel")
 async def setchannel(ctx):
     if not is_admin(ctx.author.id):
@@ -128,13 +128,13 @@ async def removechannel(ctx):
 # ---------------- Main add command ----------------
 @bot.command(name="add")
 async def add(ctx, region: str = None, adduid: str = None):
-    if region is None or adduid is None:
+    if not region or not adduid:
         await ctx.reply("Usage: `!add <region> <uid>`")
         return
 
     channels = load_channels().get("guild_channels", {})
     allowed_channel_id = channels.get(str(ctx.guild.id))
-    if allowed_channel_id is not None and ctx.channel.id != allowed_channel_id:
+    if allowed_channel_id and ctx.channel.id != allowed_channel_id:
         await ctx.reply("This command can only be used in the configured channel.")
         return
 
@@ -143,42 +143,44 @@ async def add(ctx, region: str = None, adduid: str = None):
         await ctx.reply(f"You reached your limit. Limit: {NORMAL_LIMIT}")
         return
 
-    # Call API
     await ctx.typing()
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, call_addfriend_api, region, adduid)
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, call_addfriend_api, adduid, region)
+    except Exception:
+        await ctx.message.delete()
+        return
 
     success_message = result.get("message")
     error_message = result.get("error")
 
-    # If neither message nor error, silently delete
+    # Only respond if message or error exists
     if not success_message and not error_message:
         await ctx.message.delete()
         return
 
-    # Increment usage
     increment_user_usage(ctx.author.id)
     remaining_after = get_user_limit_remaining(ctx.author.id)
 
-    if success_message:
-        embed = make_embed(success_message, success=True, author=ctx.author, remaining_limit=remaining_after)
-    else:
-        embed = make_embed(error_message, success=False, author=ctx.author, remaining_limit=remaining_after)
-
+    embed = make_embed(success_message if success_message else error_message,
+                       success=bool(success_message),
+                       author=ctx.author,
+                       remaining_limit=remaining_after)
     await ctx.reply(embed=embed)
 
-# ---------------- Admin reset usage ----------------
+# ---------------- Admin command to reset user usage ----------------
 @bot.command(name="resetusage")
 async def resetusage(ctx, user_id: int = None):
     if not is_admin(ctx.author.id):
         await ctx.reply("You are not allowed to use this command.")
         return
-    if user_id is None:
+    if not user_id:
         await ctx.reply("Usage: `!resetusage <discord_user_id>`")
         return
     reset_usage_for_user(user_id)
     await ctx.reply(f"Reset usage for user {user_id}.")
 
+# ---------------- Run bot ----------------
 def run():
     ensure_files()
     if not BOT_TOKEN:
