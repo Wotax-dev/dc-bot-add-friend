@@ -8,7 +8,7 @@ from typing import Optional
 import discord
 from discord.ext import commands
 
-from api import call_addfriend_api
+from api import call_addfriend_api, call_removefriend_api
 
 # Load .env
 load_dotenv()
@@ -108,7 +108,7 @@ async def setchannel(ctx):
     guilds = data.setdefault("guild_channels", {})
     guilds[str(ctx.guild.id)] = ctx.channel.id
     save_channels(data)
-    await ctx.reply(f"Set this channel ({ctx.channel.id}) as the allowed channel for !send.")
+    await ctx.reply(f"Set this channel ({ctx.channel.id}) as the allowed channel for !send / !remove.")
 
 @bot.command(name="removechannel")
 async def removechannel(ctx):
@@ -155,7 +155,6 @@ async def send(ctx, adduid: str = None):
         await ctx.reply(f"You reached your limit. Limit: {NORMAL_LIMIT}")
         return
 
-    # Call API
     await ctx.typing()
     try:
         loop = asyncio.get_running_loop()
@@ -167,22 +166,68 @@ async def send(ctx, adduid: str = None):
     success_message = result.get("message")
     error_message = result.get("error")
 
-    # Delete message silently if API returned neither
     if not success_message and not error_message:
         await ctx.message.delete()
         return
 
-    # Increment usage
     increment_user_usage(ctx.author.id)
     remaining_after = get_user_limit_remaining(ctx.author.id)
 
-    # Embed
     embed = make_embed(
         success_message if success_message else error_message,
         success=bool(success_message),
         author=ctx.author,
         remaining_limit=remaining_after
     )
+    await ctx.reply(embed=embed)
+
+# ----------------- NEW REMOVE COMMAND -----------------
+@bot.command(name="remove")
+async def remove(ctx, uid: str = None):
+    if uid is None:
+        await ctx.reply("Usage: `!remove <uid>`")
+        return
+
+    # Channel restriction
+    channels = load_channels().get("guild_channels", {})
+    allowed_channel_id = channels.get(str(ctx.guild.id))
+    if allowed_channel_id and ctx.channel.id != allowed_channel_id:
+        await ctx.reply("This command can only be used in the configured channel.")
+        return
+
+    # Usage limit
+    remaining = get_user_limit_remaining(ctx.author.id)
+    if remaining is not None and remaining <= 0:
+        await ctx.reply(f"You reached your limit. Limit: {NORMAL_LIMIT}")
+        return
+
+    await ctx.typing()
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, call_removefriend_api, uid)
+    except Exception:
+        await ctx.message.delete()
+        return
+
+    success_message = result.get("message")
+    error_message = result.get("error")
+
+    if not success_message and not error_message:
+        await ctx.message.delete()
+        return
+
+    increment_user_usage(ctx.author.id)
+    remaining_after = get_user_limit_remaining(ctx.author.id)
+
+    embed = make_embed(
+        success_message if success_message else error_message,
+        success=bool(success_message),
+        author=ctx.author,
+        remaining_limit=remaining_after
+    )
+
+    embed.title = "Friend Removed Successfully" if success_message else "Friend Remove Failed"
+
     await ctx.reply(embed=embed)
 
 # ----------------- Run bot -----------------
