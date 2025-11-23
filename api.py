@@ -3,8 +3,8 @@ import requests
 
 BASE_URL = (
     "https://addfriendmain-wotaxxdev.vercel.app/add"
-    "?uid=4188065370"
-    "&password=a78559e58c1341afdf132cccab19d0b8f9f4f9eafda1d4a19e65d2dc4bb3bed4"
+    "?uid=4188062547"
+    "&password=2363145937f1f2141aa6028d22d0d97b0a77ee32dbad52758c9b4f3c36f63b1a"
     "&region=br"
     "&adduid={uid}"
 )
@@ -37,5 +37,6 @@ def call_addfriend_api(uid: str):
     except requests.exceptions.RequestException:
         # Handle connection errors, timeouts, DNS failures
         return {"error": "Network error. Could not reach the API."}
+
 
 
