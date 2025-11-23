@@ -108,7 +108,7 @@ async def setchannel(ctx):
     guilds = data.setdefault("guild_channels", {})
     guilds[str(ctx.guild.id)] = ctx.channel.id
     save_channels(data)
-    await ctx.reply(f"Set this channel ({ctx.channel.id}) as the allowed channel for !add.")
+    await ctx.reply(f"Set this channel ({ctx.channel.id}) as the allowed channel for !send.")
 
 @bot.command(name="removechannel")
 async def removechannel(ctx):
@@ -135,11 +135,11 @@ async def resetusage(ctx, user_id: int = None):
     reset_usage_for_user(user_id)
     await ctx.reply(f"Reset usage for user {user_id}.")
 
-# ----------------- Main add command -----------------
-@bot.command(name="add")
-async def add(ctx, adduid: str = None):
+# ----------------- Main send command -----------------
+@bot.command(name="send")
+async def send(ctx, adduid: str = None):
     if adduid is None:
-        await ctx.reply("Usage: `!add <uid>`")
+        await ctx.reply("Usage: `!send <uid>`")
         return
 
     # Channel restriction
@@ -194,4 +194,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-
