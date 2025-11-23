@@ -1,4 +1,3 @@
-# bot.py
 import os
 import json
 import asyncio
@@ -27,7 +26,7 @@ GIF_THUMB = "https://i.imgur.com/3ikE0vL.gif"
 # Limits
 NORMAL_LIMIT = 2
 
-# Helper persistence functions
+# ---------------- Helper functions ----------------
 def ensure_files():
     if not CHANNELS_FILE.exists():
         CHANNELS_FILE.write_text(json.dumps({"guild_channels": {}}, indent=2))
@@ -56,7 +55,7 @@ def get_user_limit_remaining(user_id: int):
     users = usage.setdefault("users", {})
     u = users.get(str(user_id), {"used": 0})
     if is_admin(user_id):
-        return None  # None means unlimited
+        return None
     used = u.get("used", 0)
     return max(0, NORMAL_LIMIT - used)
 
@@ -76,7 +75,7 @@ def reset_usage_for_user(user_id: int):
         users[str(user_id)]["used"] = 0
         save_usage(usage)
 
-# Bot setup
+# ---------------- Bot setup ----------------
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
@@ -86,31 +85,21 @@ async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
 
 def make_embed(message_text: str, success: bool, author: discord.Member, remaining_limit: Optional[int]):
-    color = 0x7c5cff if success else 0xFF4D4D  # purple for success, red for error
+    color = 0x7c5cff if success else 0xFF4D4D
     embed = discord.Embed(
         title="Friend Added Successfully" if success else "Friend Request Failed",
         description=None,
         color=color
     )
-    # API message
-    embed.add_field(name="\u200b", value=message_text, inline=False)
-
-    # GIF at bottom
+    embed.add_field(name="Response:", value=message_text, inline=False)
     embed.set_image(url=GIF_THUMB)
-
-    # Footer
     embed.set_footer(text="Dev: Wotaxx • Powered by ULTIGER IOS")
-
-    # Limit info
     limit_text = "unlimited" if remaining_limit is None else str(remaining_limit)
     embed.add_field(name="Limit", value=limit_text, inline=True)
-
-    # Author
     embed.set_author(name=str(author), icon_url=author.display_avatar.url if author.display_avatar else None)
-
     return embed
 
-# Admin-only set channel
+# ---------------- Admin channel commands ----------------
 @bot.command(name="setchannel")
 async def setchannel(ctx):
     if not is_admin(ctx.author.id):
@@ -136,44 +125,33 @@ async def removechannel(ctx):
     else:
         await ctx.reply("No channel was set for this server.")
 
-# Main add command
+# ---------------- Main add command ----------------
 @bot.command(name="add")
-async def add(ctx, adduid: str = None):
-    if adduid is None:
-        await ctx.reply("Usage: `!add <uid>`")
+async def add(ctx, region: str = None, adduid: str = None):
+    if region is None or adduid is None:
+        await ctx.reply("Usage: `!add <region> <uid>`")
         return
 
-    # Channel restriction
     channels = load_channels().get("guild_channels", {})
     allowed_channel_id = channels.get(str(ctx.guild.id))
     if allowed_channel_id is not None and ctx.channel.id != allowed_channel_id:
         await ctx.reply("This command can only be used in the configured channel.")
         return
 
-    # Usage limit
     remaining = get_user_limit_remaining(ctx.author.id)
     if remaining is not None and remaining <= 0:
         await ctx.reply(f"You reached your limit. Limit: {NORMAL_LIMIT}")
         return
 
-    # Compute remaining_after upfront
-    remaining_after = get_user_limit_remaining(ctx.author.id)
-
     # Call API
     await ctx.typing()
-    try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, call_addfriend_api, adduid)
-    except Exception:
-        # Delete user message silently if network error
-        await ctx.message.delete()
-        return
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, call_addfriend_api, region, adduid)
 
-    # Parse API response
     success_message = result.get("message")
     error_message = result.get("error")
 
-    # If neither message nor error, delete user message silently
+    # If neither message nor error, silently delete
     if not success_message and not error_message:
         await ctx.message.delete()
         return
@@ -182,15 +160,14 @@ async def add(ctx, adduid: str = None):
     increment_user_usage(ctx.author.id)
     remaining_after = get_user_limit_remaining(ctx.author.id)
 
-    # Make embed
     if success_message:
         embed = make_embed(success_message, success=True, author=ctx.author, remaining_limit=remaining_after)
-    else:  # error_message exists
+    else:
         embed = make_embed(error_message, success=False, author=ctx.author, remaining_limit=remaining_after)
 
     await ctx.reply(embed=embed)
 
-# Admin command to reset user usage
+# ---------------- Admin reset usage ----------------
 @bot.command(name="resetusage")
 async def resetusage(ctx, user_id: int = None):
     if not is_admin(ctx.author.id):
