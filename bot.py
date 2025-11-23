@@ -2,26 +2,32 @@
 import os
 import json
 import asyncio
+from dotenv import load_dotenv
 from pathlib import Path
 from typing import Optional
 
 import discord
 from discord.ext import commands
+
 from api import call_addfriend_api
-from dotenv import load_dotenv
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMINS_RAW = os.getenv("ADMINS", "")
+DEFAULT_REGION = os.getenv("DEFAULT_REGION", "eu").lower()
+
 ADMINS = {int(x.strip()) for x in ADMINS_RAW.split(",") if x.strip().isdigit()}
 
 BASE_DIR = Path(__file__).parent
 CHANNELS_FILE = BASE_DIR / "channels.json"
 USAGE_FILE = BASE_DIR / "usage.json"
+
 GIF_THUMB = "https://i.imgur.com/3ikE0vL.gif"
+
+# Limits
 NORMAL_LIMIT = 2
 
-# ------------------- Helpers ------------------- #
+# Helper persistence functions
 def ensure_files():
     if not CHANNELS_FILE.exists():
         CHANNELS_FILE.write_text(json.dumps({"guild_channels": {}}, indent=2))
@@ -50,7 +56,7 @@ def get_user_limit_remaining(user_id: int):
     users = usage.setdefault("users", {})
     u = users.get(str(user_id), {"used": 0})
     if is_admin(user_id):
-        return None
+        return None  # None means unlimited
     used = u.get("used", 0)
     return max(0, NORMAL_LIMIT - used)
 
@@ -70,39 +76,7 @@ def reset_usage_for_user(user_id: int):
         users[str(user_id)]["used"] = 0
         save_usage(usage)
 
-def make_embed(message_text: str, success: bool, author: discord.Member, remaining_limit: Optional[int]):
-    color = 0x7c5cff if success else 0xFF4D4D
-    embed = discord.Embed(
-        title="Friend Added Successfully" if success else "Friend Request Failed",
-        description=None,
-        color=color
-    )
-    embed.add_field(name="\u200b", value=f"Response: {message_text}", inline=False)
-    embed.set_thumbnail(url=GIF_THUMB)
-    embed.set_footer(text="Dev: Wotaxx • Powered by ULTIGER IOS")
-    limit_text = "unlimited" if remaining_limit is None else str(remaining_limit)
-    embed.add_field(name="Limit", value=limit_text, inline=True)
-    embed.set_author(name=str(author), icon_url=author.display_avatar.url if author.display_avatar else None)
-    return embed
-
-def extract_message_error(data):
-    """
-    Recursively find 'message' or 'error' in a dict
-    Returns (key, value) or (None, None)
-    """
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k.lower() == "message":
-                return "message", str(v)
-            elif k.lower() == "error":
-                return "error", str(v)
-            elif isinstance(v, dict):
-                key, val = extract_message_error(v)
-                if key:
-                    return key, val
-    return None, None
-
-# ------------------- Bot ------------------- #
+# Bot setup
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
@@ -111,48 +85,32 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
 
-# ------------------- Commands ------------------- #
-@bot.command(name="add")
-async def add(ctx, adduid: str = None):
-    if adduid is None:
-        await ctx.reply("Usage: `!add <uid>`")
-        return
+def make_embed(message_text: str, success: bool, author: discord.Member, remaining_limit: Optional[int]):
+    color = 0x7c5cff if success else 0xFF4D4D  # purple for success, red for error
+    embed = discord.Embed(
+        title="Friend Added Successfully" if success else "Friend Request Failed",
+        description=None,
+        color=color
+    )
+    # Put the API message text in the embed
+    embed.add_field(name="\u200b", value=message_text, inline=False)
 
-    channels = load_channels().get("guild_channels", {})
-    allowed_channel_id = channels.get(str(ctx.guild.id))
-    if allowed_channel_id and ctx.channel.id != allowed_channel_id:
-        await ctx.reply("This command can only be used in the configured channel.")
-        return
+    # Image at bottom of embed
+    embed.set_image(url=GIF_THUMB)
 
-    remaining = get_user_limit_remaining(ctx.author.id)
-    if remaining is not None and remaining <= 0:
-        await ctx.reply(f"You reached your limit. Limit: {NORMAL_LIMIT}")
-        return
+    # Footer
+    embed.set_footer(text="Dev: Wotaxx • Powered by ULTIGER IOS")
 
-    await ctx.typing()
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, call_addfriend_api, adduid)
+    # Limit info
+    limit_text = "unlimited" if remaining_limit is None else str(remaining_limit)
+    embed.add_field(name="Limit", value=limit_text, inline=True)
 
-    key, text = extract_message_error(result)
+    # Show who requested
+    embed.set_author(name=str(author), icon_url=author.display_avatar.url if author.display_avatar else None)
 
-    if key == "message":
-        increment_user_usage(ctx.author.id)
-        remaining_after = get_user_limit_remaining(ctx.author.id)
-        embed = make_embed(text, success=True, author=ctx.author, remaining_limit=remaining_after)
-        await ctx.reply(embed=embed)
-    elif key == "error":
-        increment_user_usage(ctx.author.id)
-        remaining_after = get_user_limit_remaining(ctx.author.id)
-        embed = make_embed(text, success=False, author=ctx.author, remaining_limit=remaining_after)
-        await ctx.reply(embed=embed)
-    else:
-        # delete only if truly nothing valid
-        try:
-            await ctx.message.delete()
-        except:
-            pass
+    return embed
 
-# ------------------- Admin Commands ------------------- #
+# Admin-only set channel
 @bot.command(name="setchannel")
 async def setchannel(ctx):
     if not is_admin(ctx.author.id):
@@ -178,6 +136,58 @@ async def removechannel(ctx):
     else:
         await ctx.reply("No channel was set for this server.")
 
+# The main add command
+@bot.command(name="add")
+async def add(ctx, adduid: str = None):
+    if adduid is None:
+        await ctx.reply("Usage: `!add <uid>`")
+        return
+
+    # Channel restriction
+    channels = load_channels().get("guild_channels", {})
+    allowed_channel_id = channels.get(str(ctx.guild.id))
+    if allowed_channel_id is not None and ctx.channel.id != allowed_channel_id:
+        await ctx.reply("This command can only be used in the configured channel.")
+        return
+
+    # Usage limit
+    remaining = get_user_limit_remaining(ctx.author.id)
+    if remaining is not None and remaining <= 0:
+        await ctx.reply(f"You reached your limit. Limit: {NORMAL_LIMIT}")
+        return
+
+    # Compute remaining_after upfront
+    remaining_after = get_user_limit_remaining(ctx.author.id)
+
+    # Call API
+    await ctx.typing()
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, call_addfriend_api, adduid)
+    except Exception as e:
+        embed = make_embed(f"❌ Network error calling API: {str(e)}", success=False, author=ctx.author, remaining_limit=remaining_after)
+        await ctx.reply(embed=embed)
+        return
+
+    # Parse API response
+    success_message = result.get("message")
+    error_message = result.get("error")
+
+    # Increment usage
+    increment_user_usage(ctx.author.id)
+    remaining_after = get_user_limit_remaining(ctx.author.id)
+
+    if success_message:
+        embed = make_embed(success_message, success=True, author=ctx.author, remaining_limit=remaining_after)
+        await ctx.reply(embed=embed)
+    elif error_message:
+        embed = make_embed(error_message, success=False, author=ctx.author, remaining_limit=remaining_after)
+        await ctx.reply(embed=embed)
+    else:
+        embed = make_embed("❌ Unexpected API response format.", success=False, author=ctx.author, remaining_limit=remaining_after)
+        await ctx.reply(embed=embed)
+
+# Admin command to reset user usage
 @bot.command(name="resetusage")
 async def resetusage(ctx, user_id: int = None):
     if not is_admin(ctx.author.id):
@@ -194,3 +204,6 @@ def run():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN env var missing in .env")
     bot.run(BOT_TOKEN)
+
+if __name__ == "__main__":
+    run()
