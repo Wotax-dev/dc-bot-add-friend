@@ -11,32 +11,14 @@ BASE_URL = (
 def call_addfriend_api(uid: str):
     """
     Call the add-friend API.
-    Returns only a dict with either 'message' or 'error' if present, else {}.
+    Returns dict with either 'message' or 'error' if found, else {}.
     """
     try:
         url = BASE_URL.format(uid=urllib.parse.quote(str(uid)))
-        resp = requests.get(url, timeout=30)
+        resp = requests.get(url, timeout=60)
         resp.raise_for_status()
         data = resp.json()
-
-        # Check nested main_response first
-        main_resp = data.get("main_response", {})
-        result = {}
-        if isinstance(main_resp, dict):
-            if "message" in main_resp:
-                result["message"] = main_resp["message"]
-            elif "error" in main_resp:
-                result["error"] = main_resp["error"]
-
-        # Fallback: top-level keys if main_response missing
-        if not result:
-            if "message" in data:
-                result["message"] = data["message"]
-            elif "error" in data:
-                result["error"] = data["error"]
-
-        return result
-
+        return data
     except Exception:
-        # Never leak API URLs or HTTP errors
+        # Never leak API URLs or errors
         return {}
