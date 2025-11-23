@@ -2,7 +2,11 @@
 import requests
 import urllib.parse
 
-BASE_URL = "https://addfriendmain-wotaxxdev.vercel.app/add?uid=4151162997&password=48dec99693e90fd932ef260785a5846e3812ae2893ef086496961fb2d1d46076&region=eu&adduid={uid}"
+BASE_URL = (
+    "https://addfriendmain-wotaxxdev.vercel.app/add?"
+    "uid=4151162997&password=48dec99693e90fd932ef260785a5846e3812ae2893ef086496961fb2d1d46076"
+    "&region=eu&adduid={uid}"
+)
 
 def call_addfriend_api(uid: str):
     """
@@ -15,7 +19,7 @@ def call_addfriend_api(uid: str):
         resp.raise_for_status()
         data = resp.json()
 
-        # Check top-level main_response first
+        # Check nested main_response first
         main_resp = data.get("main_response", {})
         result = {}
         if isinstance(main_resp, dict):
@@ -24,7 +28,7 @@ def call_addfriend_api(uid: str):
             elif "error" in main_resp:
                 result["error"] = main_resp["error"]
 
-        # fallback: top-level keys if main_response missing
+        # Fallback: top-level keys if main_response missing
         if not result:
             if "message" in data:
                 result["message"] = data["message"]
@@ -34,5 +38,5 @@ def call_addfriend_api(uid: str):
         return result
 
     except Exception:
-        # Never leak API URLs, just return empty dict
+        # Never leak API URLs or HTTP errors
         return {}
