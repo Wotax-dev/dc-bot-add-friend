@@ -21,7 +21,7 @@ CHANNELS_FILE = BASE_DIR / "channels.json"
 USAGE_FILE = BASE_DIR / "usage.json"
 
 GIF_THUMB = "https://i.imgur.com/3ikE0vL.gif"
-NORMAL_LIMIT = 2  # normal user limit
+NORMAL_LIMIT = 1  # normal user limit
 
 # ----------------- File helpers -----------------
 def ensure_files():
@@ -194,3 +194,4 @@ def run():
 
 if __name__ == "__main__":
     run()
+
